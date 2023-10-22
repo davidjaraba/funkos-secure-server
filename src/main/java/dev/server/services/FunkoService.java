@@ -1,8 +1,10 @@
-package dev.services;
+package dev.server.services;
 
 
-import dev.database.models.Funko;
-import dev.database.models.Modelo;
+import dev.common.models.Funko;
+import dev.server.database.models.Modelo;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.sql.SQLException;
@@ -37,6 +39,5 @@ public interface FunkoService {
 
     Flux<Funko> stitchFunkos() throws SQLException, IOException;
 
-    Mono<Void> backup();
 
 }

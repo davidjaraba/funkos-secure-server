@@ -3,120 +3,130 @@ package dev.server.services;
 
 import dev.common.models.Funko;
 import dev.server.database.models.Modelo;
+import dev.server.repositories.FunkosReactiveRepo;
+import dev.server.services.cache.FunkosCache;
 import dev.server.exceptions.FunkoNoEncontrado;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
-import java.io.FileNotFoundException;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.SQLException;
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.time.LocalDate;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
-public class FunkosServiceImpl {
+public class FunkoServiceImpl implements FunkoService {
+    private final Logger logger = LoggerFactory.getLogger(FunkoServiceImpl.class);
+    private final FunkosReactiveRepo funkosReactiveRepo;
+    private final FunkosCache<UUID, Funko> funkosCache;
 
-    private final Logger logger = LoggerFactory.getLogger(FunkosServiceImpl.class);
-
-    private static FunkosServiceImpl instance;
-    private final FunkosAsyncRepoImpl repository;
-    private final FunkosCacheImpl cache;
-    private final DatabaseManager databaseManager;
-    private final FunkosStorageImpl storage;
-    private final ExecutorService executorService = Executors.newFixedThreadPool(10);
-
-
-
-    private FunkosServiceImpl(FunkosAsyncRepoImpl repo, DatabaseManager databaseManager, FunkosCacheImpl cache, FunkosStorageImpl storage) {
-
-        this.cache = cache;
-        this.repository = repo;
-        this.databaseManager = databaseManager;
-        this.storage = storage;
-
+    public FunkoServiceImpl(FunkosReactiveRepo funkosReactiveRepo, FunkosCache<UUID, Funko> funkosCache) {
+        this.funkosReactiveRepo = funkosReactiveRepo;
+        this.funkosCache = funkosCache;
     }
 
-    public static synchronized FunkosServiceImpl getInstance(FunkosAsyncRepoImpl repo, DatabaseManager databaseManager, FunkosCacheImpl cache, FunkosStorageImpl storage){
-        if (instance == null) {
-            instance = new FunkosServiceImpl(repo, databaseManager, cache, storage);
+    @Override
+    public Flux<Funko> findAll() throws SQLException, IOException {
+        return funkosReactiveRepo.findAll();
+    }
+
+    @Override
+    public Mono<Void> importCsv() {
+        final String filePath = "data" + File.separator + "funkos.csv";
+        if (!Files.exists(Path.of(filePath))) {
+            logger.error("El fichero " + filePath + " no existe");
+            return Mono.empty();
         }
-        return instance;
+        final String delimiter = ",";
+        Flux.using(
+                () -> new BufferedReader(new FileReader(filePath)),
+                reader -> Flux.fromStream(reader.lines().skip(1).map(line -> {
+                    String[] values = line.split(delimiter);
+                    UUID uuid = UUID.fromString(values[0].substring(0, 35));
+                    return new Funko(uuid, values[1], Modelo.valueOf(values[2]), Double.parseDouble(values[3]), LocalDate.parse(values[4]));
+                })),
+                reader -> {
+                    try {
+                        reader.close();
+                    } catch (IOException e) {
+                        logger.error("Error al cerrar el reader", e);
+                    }
+                }).subscribe(funko -> {
+                    try {
+                        save(funko);
+                    } catch (SQLException | IOException e) {
+                        logger.error("Error al guardar el funko " + funko, e);
+                    }
+                });
+
+        return Mono.empty();
+
     }
 
-    public List<Funko> findAll() throws ExecutionException, InterruptedException {
-        logger.info("Obteniendo todos los funkos");
-        return repository.findAll().get();
+    @Override
+    public Mono<Funko> findById(UUID id) throws SQLException, IOException {
+        return funkosCache.get(id).switchIfEmpty(funkosReactiveRepo.findById(id).flatMap(funko -> funkosCache.put(funko.codigo(), funko).then(Mono.just(funko)))).switchIfEmpty(Mono.error(new FunkoNoEncontrado("Funko con id " + id + " no encontrado")));
     }
 
-    public Optional<Funko> findByName(String name) throws ExecutionException, InterruptedException {
-        logger.info("Obteniendo funko con nombre: "+name);
-        return repository.findByName(name).get();
+
+    @Override
+    public Mono<Funko> save(Funko funko) throws SQLException, IOException {
+        return funkosReactiveRepo.save(funko);
     }
 
-    public Optional<Funko> findById(UUID id) throws ExecutionException, InterruptedException {
-        logger.info("Obtenido funko con id "+id);
-        Funko funko = cache.get(id);
-        if (funko != null){
-            return Optional.of(funko);
-        }else{
-            return repository.findById(id).get();
-        }
+    @Override
+    public Mono<Boolean> delete(Funko funko) throws SQLException, IOException {
+        return funkosReactiveRepo.delete(funko.codigo()).doOnSuccess(aBoolean -> funkosCache.remove(funko.codigo()));
     }
 
-    public Funko save(Funko funko) throws ExecutionException, InterruptedException {
-        logger.info("Guardando funko con id "+funko.codigo());
-        repository.save(funko).get();
-        cache.put(funko.codigo(), funko);
-        return funko;
+    @Override
+    public Mono<Funko> update(Funko funko) throws SQLException, IOException {
+        return funkosReactiveRepo.update(funko);
     }
 
-    public Funko update(UUID id, Funko funko) throws ExecutionException, InterruptedException {
-        logger.info("Actualizando funko con id "+funko.codigo());
-        repository.update(id, funko).get();
-        cache.put(funko.codigo(), funko);
-        return funko;
+    @Override
+    public Mono<Funko> mostExpensiveFunko() throws SQLException, IOException {
+        return findAll().sort(Comparator.comparingDouble(Funko::precio).reversed()).next();
     }
 
-    public boolean delete(UUID id) throws ExecutionException, InterruptedException {
-        logger.info("Eliminando funko con id "+id);
-        boolean deleted = repository.delete(id).get();
-        if (deleted){
-            cache.remove(id);
-        }
-        return deleted;
+    @Override
+    public Mono<Map<Modelo, List<Funko>>> groupedByModel() throws SQLException, IOException {
+        return findAll().collect(Collectors.groupingBy(Funko::modelo));
     }
 
-    public Optional<Funko> mostExpensiveFunko() throws ExecutionException, InterruptedException {
-        List<Funko> funkos = this.findAll();
-        return funkos.stream().max(Comparator.comparingDouble(Funko::precio));
+    @Override
+    public Mono<Map<Modelo, Long>> countByModel() throws SQLException, IOException {
+        return findAll().collect(Collectors.groupingBy(Funko::modelo, Collectors.counting()));
     }
 
-    public double averagePrice() throws ExecutionException, InterruptedException {
-        List<Funko> funkos = this.findAll();
-        return funkos.stream().mapToDouble(Funko::precio).average().orElse(0.0);
+    @Override
+    public Flux<Funko> releasedIn2023() throws SQLException, IOException {
+        return findAll().filter(funko -> funko.fechaLanzamiento().getYear() == 2023);
     }
 
-    public Map<Modelo, List<Funko>> funkosGroupedByModel() throws ExecutionException, InterruptedException {
-        List<Funko> funkos = this.findAll();
-        return funkos.stream().collect(Collectors.groupingBy(Funko::modelo));
+    @Override
+    public Mono<Double> averagePrice() throws SQLException, IOException {
+        return findAll().collect(Collectors.averagingDouble(Funko::precio));
     }
 
-    public Map<Modelo, Integer> numFunkosGroupedByModel() throws ExecutionException, InterruptedException {
-        List<Funko> funkos = this.findAll();
-        return funkos.stream().collect(Collectors.groupingBy(Funko::modelo, Collectors.summingInt(e -> 1)));
+    @Override
+    public Mono<Long> stitchFunkosCount() throws SQLException, IOException {
+        return findAll().count();
     }
 
-    public List<Funko> funkosReleasedInYear(int ano) throws ExecutionException, InterruptedException {
-        List<Funko> funkos = this.findAll();
-        return funkos.stream().filter(fk -> fk.fechaLanzamiento().getYear() == ano).toList();
-    }
-
-    public List<Funko> funkosContainWord(String palabra) throws ExecutionException, InterruptedException {
-        List<Funko> funkos = this.findAll();
-        return funkos.stream().filter(fk -> fk.nombre().toLowerCase().contains(palabra.toLowerCase())).toList();
+    @Override
+    public Flux<Funko> stitchFunkos() throws SQLException, IOException {
+        return findAll().filter(funko -> funko.nombre().contains("Stitch"));
     }
 
 }
