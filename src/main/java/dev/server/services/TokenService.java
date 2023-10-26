@@ -41,47 +41,26 @@ public class TokenService {
                 .sign(algorithm);
     }
 
-    public boolean verifyToken(String token, String secret, User user){
-
-        logger.info("Verificando token");
-        Algorithm algorithm = Algorithm.HMAC256(secret);
-
-        try{
-            DecodedJWT decodedJWT = JWT.require(algorithm)
-                    .build()
-                    .verify(token);
-
-            return decodedJWT.getClaim("id").asLong() == user.id() &&
-                    decodedJWT.getClaim("username").asString().equals(user.username()) &&
-                    decodedJWT.getClaim("password").asString().equals(user.password());
 
 
-        }catch (Exception e){
-            logger.error("Error al verificar token "+e);
-            return false;
-        }
-
-    }
-
-
-    public boolean verifyToken(String token, String secret){
+    public DecodedJWT verifyToken(String token, String secret){
 
         logger.info("Verificando token...");
         Algorithm algorithm = Algorithm.HMAC256(secret);
 
         try{
-            JWT.require(algorithm)
+            DecodedJWT verifiedToken = JWT.require(algorithm)
                     .build()
                     .verify(token);
 
 
             logger.info("Token verificado");
 
-            return true;
+            return verifiedToken;
 
         }catch (Exception e){
             logger.error("Error al verificar token "+e);
-            return false;
+            return null;
         }
 
     }

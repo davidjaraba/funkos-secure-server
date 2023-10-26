@@ -10,6 +10,7 @@ import dev.common.models.User;
 import dev.common.utils.LocalDateAdapter;
 import dev.common.utils.UuidAdapter;
 import dev.server.Server;
+import org.apache.ibatis.logging.Log;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,13 +39,14 @@ public class Client {
     private BufferedReader in;
     private String token;
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         Client client = new Client();
         try {
             client.start();
         } catch (IOException e) {
             logger.error("Error: " + e.getMessage());
         }
+
     }
 
     public static Properties loadProperties() {
@@ -53,11 +55,11 @@ public class Client {
 
         Properties appProps = new Properties();
 
-        try (FileInputStream file = new FileInputStream(Objects.requireNonNull(Server.class.getClassLoader().getResource("client.properties")).getPath())){
+        try (FileInputStream file = new FileInputStream(Objects.requireNonNull(Server.class.getClassLoader().getResource("client.properties")).getPath())) {
 
             appProps.load(file);
 
-        }catch (Exception e) {
+        } catch (Exception e) {
             logger.error("Error al cargar la configuracion " + e);
         }
 
@@ -106,38 +108,37 @@ public class Client {
     public void start() throws IOException {
 
         initClient();
-
         openConnection();
 
         token = sendLoginRequest();
 
+        closeConnection();
 
     }
 
     public String sendLoginRequest() {
 
-        Request request = new Request(Request.Type.LOGIN, gson.toJson(new Login("manolo", "manolo1234")), null, LocalDateTime.now().toString());
-
-        out.println(gson.toJson(request));
-
-        try{
-            logger.debug("Esperando respuesta del servidor");
-
-            Response response = gson.fromJson(in.readLine(), new TypeToken<Response>() {
-            }.getType());
-
-            logger.debug("Respuesta "+response);
-
-            return response.content().toString();
-
-        }catch (Exception e){
-            logger.error("Error "+e);
+        Login request =  new Login("manolo", "manolo1234");
+        Response<String> response = sendRequest(request, Request.Type.LOGIN);
+        if (response == null) {
+            logger.error("Error al enviar la petición de login");
+            return null;
         }
-
-        return null;
+        return response.content();
 
     }
 
+
+    private <T, R> Response<R> sendRequest(T content, Request.Type type) {
+        out.println(gson.toJson(new Request<>(type, content, token, LocalDateTime.now().toString())));
+        try {
+            return gson.fromJson(in.readLine(), new TypeToken<Response<R>>() {
+            }.getType());
+        } catch (IOException e) {
+            logger.error("Error: {}", e.getMessage());
+        }
+        return null;
+    }
 
 
 }

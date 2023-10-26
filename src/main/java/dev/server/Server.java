@@ -75,8 +75,7 @@ public class Server {
             }
 
         }catch (Exception e){
-            logger.error("Error al iniciar el servidor");
-            logger.error(e.getMessage());
+            logger.error("Error al iniciar el servidor", e);
         }
 
     }

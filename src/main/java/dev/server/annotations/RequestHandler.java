@@ -1,4 +1,6 @@
-package dev.server;
+package dev.server.annotations;
+
+import dev.common.models.Request;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -7,7 +9,6 @@ import java.lang.annotation.Target;
 
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)
-public @interface Authorized {
-    String[] roles() default {};
+public @interface RequestHandler {
+    Request.Type value();
 }
-

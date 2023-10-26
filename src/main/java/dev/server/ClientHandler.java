@@ -1,5 +1,6 @@
 package dev.server;
 
+import com.auth0.jwt.interfaces.DecodedJWT;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import dev.common.models.Login;
@@ -8,6 +9,10 @@ import dev.common.models.Response;
 import dev.common.models.User;
 import dev.common.utils.LocalDateAdapter;
 import dev.common.utils.UuidAdapter;
+import dev.server.annotations.Authorized;
+import dev.server.annotations.RequestBody;
+import dev.server.annotations.RequestHandler;
+import dev.server.annotations.RequestToken;
 import dev.server.repositories.UsersRepository;
 import dev.server.services.TokenService;
 import org.mindrot.jbcrypt.BCrypt;
@@ -19,13 +24,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.net.Socket;
-import java.rmi.ServerException;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 public class ClientHandler extends Thread {
 
@@ -50,7 +52,7 @@ public class ClientHandler extends Thread {
 
     }
 
-    public void start(){
+    public void start() {
 
         registerHandlers(this);
 
@@ -59,17 +61,16 @@ public class ClientHandler extends Thread {
             openConnection();
 
             String clientInput;
-            Request request;
 
-            while (true) {
-                clientInput = in.readLine();
+            while ((clientInput = in.readLine()) != null) {
                 logger.debug("request " + clientInput);
-                request = gson.fromJson(clientInput, Request.class);
-                out.println(gson.toJson(handleRequest(request)));
+                Response<?> response = handleRequest(clientInput);
+                String json = gson.toJson(response);
+                out.println(json);
             }
 
         } catch (IOException | NoSuchMethodException e) {
-            logger.error("Error: " + e.getMessage());
+            logger.error("Error: {}", e.getMessage());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -78,7 +79,7 @@ public class ClientHandler extends Thread {
 
     private void openConnection() throws IOException, NoSuchMethodException {
 
-        logger.info("Abriendo conexión con el cliente " + clientNumber);
+        logger.info("Abriendo conexión con el cliente {}", clientNumber);
 
         in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
         out = new PrintWriter(socket.getOutputStream(), true);
@@ -100,6 +101,9 @@ public class ClientHandler extends Thread {
         for (Method method : methods) {
 //             && method.getParameterCount() == 1
             if (method.isAnnotationPresent(RequestHandler.class)) {
+                if (method.getReturnType() != Response.class) {
+                    throw new IllegalArgumentException("El método " + method.getName() + " de la clase " + clazz.getName() + " debe devolver una respuesta");
+                }
                 RequestHandler annotation = method.getAnnotation(RequestHandler.class);
                 Request.Type requestType = annotation.value();
                 handlers.put(requestType, method);
@@ -107,14 +111,38 @@ public class ClientHandler extends Thread {
         }
     }
 
-    public Response<?> handleRequest(Request request) throws Exception {
+    public Response<?> handleRequest(String request) throws Exception {
 
-        logger.debug("Procesando peticion " + request.type());
-
-        Method handler = handlers.get(request.type());
+        Request<?> requestObj = gson.fromJson(request, Request.class);
+        logger.debug("Procesando peticion {}", requestObj.type());
+        Method handler = handlers.get(requestObj.type());
 
         if (handler != null) {
-            return (Response<?>) handler.invoke(this, request.content());
+            DecodedJWT token = verifyToken(requestObj.token());
+            if (handler.isAnnotationPresent(Authorized.class) && token == null) {
+                return new Response<>(Response.Status.UNAUTHORIZED, "No autorizado", LocalDateTime.now().toString());
+            }
+            Parameter[] parameters = handler.getParameters();
+            List<Object> args = new ArrayList<>();
+            for (Parameter parameter : parameters) {
+                if (parameter.isAnnotationPresent(RequestToken.class)) {
+                    if (!parameter.getType().isAssignableFrom(DecodedJWT.class)) {
+                        throw new IllegalArgumentException("El parámetro " + parameter.getName() + " del método " + handler.getName() + " de la clase " + handler.getDeclaringClass().getName() + " debe ser de tipo DecodedJWT");
+                    }
+                    args.add(token);
+                }
+
+                if (parameter.isAnnotationPresent(RequestBody.class)) {
+
+                    String contentJson = gson.toJson(requestObj.content());
+                    Object methodParameter = gson.fromJson(contentJson, parameter.getType());
+                    if (!parameter.getType().isAssignableFrom(methodParameter.getClass())) {
+                        throw new IllegalArgumentException("El parámetro " + parameter.getName() + " del método " + handler.getName() + " de la clase " + handler.getDeclaringClass().getName() + " debe ser de tipo " + parameter.getType().getName());
+                    }
+                    args.add(methodParameter);
+                }
+            }
+            return (Response<?>) handler.invoke(this, args.toArray());
         } else {
             logger.error("Request no valida");
             return new Response<>(Response.Status.ERROR, "Request no valida", LocalDateTime.now().toString());
@@ -122,12 +150,10 @@ public class ClientHandler extends Thread {
     }
 
     @RequestHandler(value = Request.Type.LOGIN)
-    @Authorized(roles = {"USER", "ADMIN"})
-    private Response<String> login(String content) {
+    private Response<String> login(@RequestBody Login login) {
 
-        logger.debug("Login "+content);
+        logger.debug("Login {}", login);
 
-        Login login = gson.fromJson(content, Login.class);
 
         Optional<User> user = UsersRepository.getInstance().findByByUsername(login.username());
 
@@ -141,8 +167,12 @@ public class ClientHandler extends Thread {
     }
 
 
-
-
+    private DecodedJWT verifyToken(String token) {
+        if (token == null) {
+            return null;
+        }
+        return tokenService.verifyToken(token, Server.SECRET);
+    }
 
 
 }
