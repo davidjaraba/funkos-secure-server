@@ -24,20 +24,8 @@ public interface FunkoService {
     Mono<Boolean> delete(Funko funko) throws SQLException, IOException;
 
     Mono<Funko> update(Funko funko) throws SQLException, IOException;
-
-    Mono<Funko> mostExpensiveFunko() throws SQLException, IOException;
-
     Mono<Map<Modelo, List<Funko>>> groupedByModel() throws SQLException, IOException;
-
-    Mono<Map<Modelo, Long>> countByModel() throws SQLException, IOException;
-
     Flux<Funko> releasedIn(int year) throws SQLException, IOException;
-
-    Mono<Double> averagePrice() throws SQLException, IOException;
-
-    Mono<Long> stitchFunkosCount() throws SQLException, IOException;
-
-    Flux<Funko> stitchFunkos() throws SQLException, IOException;
 
 
 }
