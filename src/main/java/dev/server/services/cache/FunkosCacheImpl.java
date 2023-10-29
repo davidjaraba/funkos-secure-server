@@ -65,4 +65,8 @@ public class FunkosCacheImpl implements FunkosCache<UUID, Funko>{
         logger.info("quitando cache");
         executorService.shutdown();
     }
+
+    public int size() {
+        return cache.size();
+    }
 }

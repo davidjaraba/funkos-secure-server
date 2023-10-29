@@ -205,7 +205,6 @@ public class ClientHandler extends Thread {
 
     }
 
-
     @RequestHandler(value = Request.Type.GETBYMODELO)
     @Authorized
     public Response<List<Funko>> getByModelo(@RequestBody Modelo modelo) throws IOException, SQLException {

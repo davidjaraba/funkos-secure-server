@@ -104,12 +104,16 @@ public class FunkosReactiveRepoImpl implements FunkosReactiveRepo {
 
     @Override
     public Mono<Boolean> delete(UUID id) throws SQLException, IOException {
-        logger.info("Eliminado funko con id "+id);
-        String sql = "DELETE FROM FUNKOS WHERE cod = ?";
+        logger.info("Eliminado funko con id " + id);
+        String sql = "DELETE FROM funkos WHERE cod = ?";
 
-        return Mono.usingWhen(databaseManager.getConnectionPool().create(),
-                connection -> Flux.from(connection.createStatement(sql).bind(0, id).execute()).flatMap(Result::getRowsUpdated).hasElements() , Connection::close);
-
+        return Mono.usingWhen(databaseManager.getConnectionPool().create(), connection -> Flux.from(connection.createStatement(sql).bind(0, id).execute()).flatMap(Result::getRowsUpdated).<Boolean>handle((number, sink) -> {
+            if (number != 0) {
+                sink.next(true);
+            } else {
+                sink.next(false);
+            }
+        }).next(), Connection::close);
 
     }
 
@@ -130,9 +134,9 @@ public class FunkosReactiveRepoImpl implements FunkosReactiveRepo {
         return Mono.usingWhen(databaseManager.getConnectionPool().create(),
                 connection -> Mono.from(connection.createStatement("SELECT * FROM funkos WHERE nombre = ?").bind(0, name).execute()).flatMap(res->  Mono.from(res.map((row, rm)-> new Funko(row.get("cod", UUID.class),
                         row.get(Columns.NOMBRE.columnName, String.class),
-                        row.get(Columns.MODELO.columnName, Modelo.class),
-                        row.get(Columns.PRECIO.columnName, Double.class),
-                        row.get(Columns.FECHALANZAMIENTO.columnName, java.time.LocalDate.class)))
+                        Modelo.valueOf(row.get(Columns.MODELO.columnName, String.class)),
+                        row.get(Columns.PRECIO.columnName, BigDecimal.class).doubleValue(),
+                        LocalDate.from(row.get(Columns.FECHALANZAMIENTO.columnName, LocalDateTime.class))))
                 )),
                 Connection::close
         );
