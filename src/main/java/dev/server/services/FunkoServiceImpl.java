@@ -3,6 +3,7 @@ package dev.server.services;
 
 import dev.common.models.Funko;
 import dev.server.database.models.Modelo;
+import dev.server.exceptions.FunkoNoGuardado;
 import dev.server.repositories.FunkosReactiveRepo;
 import dev.server.services.cache.FunkosCache;
 import dev.server.exceptions.FunkoNoEncontrado;
@@ -42,6 +43,7 @@ public class FunkoServiceImpl implements FunkoService {
 
     @Override
     public Mono<Void> importCsv() {
+
         final String filePath = "data" + File.separator + "funkos.csv";
         if (!Files.exists(Path.of(filePath))) {
             logger.error("El fichero " + filePath + " no existe");
@@ -62,20 +64,25 @@ public class FunkoServiceImpl implements FunkoService {
                         logger.error("Error al cerrar el reader", e);
                     }
                 }).subscribe(funko -> {
-                    try {
-                        save(funko);
-                    } catch (SQLException | IOException e) {
-                        logger.error("Error al guardar el funko " + funko, e);
-                    }
-                });
+            try {
+                save(funko).subscribe();
+            } catch (SQLException | IOException e) {
+                logger.error("Error al guardar el funko " + funko, e);
+            }
+        });
 
         return Mono.empty();
+
 
     }
 
     @Override
     public Mono<Funko> findById(UUID id) throws SQLException, IOException {
-        return funkosCache.get(id).switchIfEmpty(funkosReactiveRepo.findById(id).flatMap(funko -> funkosCache.put(funko.codigo(), funko).then(Mono.just(funko)))).switchIfEmpty(Mono.error(new FunkoNoEncontrado("Funko con id " + id + " no encontrado")));
+        return funkosCache.get(id)
+                .switchIfEmpty(
+                        funkosReactiveRepo.findById(id)
+                                .flatMap(funko -> funkosCache.put(funko.codigo(), funko).then(Mono.just(funko))))
+                .switchIfEmpty(Mono.error(new FunkoNoEncontrado("Funko con id " + id + " no encontrado")));
     }
 
 
@@ -86,18 +93,29 @@ public class FunkoServiceImpl implements FunkoService {
 
     @Override
     public Mono<Boolean> delete(Funko funko) throws SQLException, IOException {
-        return funkosReactiveRepo.delete(funko.codigo()).doOnSuccess(aBoolean -> funkosCache.remove(funko.codigo()));
+        return this.findById(funko.codigo()).switchIfEmpty(Mono.error(new FunkoNoEncontrado("Funko con id " + funko.codigo() + " no encontrado")))
+                .flatMap(existingFunko -> {
+                    try {
+                        return this.funkosReactiveRepo.delete(funko.codigo());
+                    } catch (SQLException | IOException e) {
+                        return Mono.error(new FunkoNoGuardado("Error al actualizar el funko " + funko));
+                    }
+                }).thenReturn(true);
     }
+
 
     @Override
     public Mono<Funko> update(Funko funko) throws SQLException, IOException {
-        return funkosReactiveRepo.update(funko);
+        return this.findById(funko.codigo()).switchIfEmpty(Mono.error(new FunkoNoEncontrado("Funko con id " + funko.codigo() + " no encontrado")))
+                .flatMap(existingFunko -> {
+                    try {
+                        return this.funkosReactiveRepo.update(funko);
+                    } catch (SQLException | IOException e) {
+                        return Mono.error(new FunkoNoGuardado("Error al actualizar el funko " + funko));
+                    }
+                }).thenReturn(funko);
     }
 
-    @Override
-    public Mono<Funko> mostExpensiveFunko() throws SQLException, IOException {
-        return findAll().sort(Comparator.comparingDouble(Funko::precio).reversed()).next();
-    }
 
     @Override
     public Mono<Map<Modelo, List<Funko>>> groupedByModel() throws SQLException, IOException {
@@ -105,28 +123,9 @@ public class FunkoServiceImpl implements FunkoService {
     }
 
     @Override
-    public Mono<Map<Modelo, Long>> countByModel() throws SQLException, IOException {
-        return findAll().collect(Collectors.groupingBy(Funko::modelo, Collectors.counting()));
+    public Flux<Funko> releasedIn(int year) throws SQLException, IOException {
+        return findAll().filter(funko -> funko.fechaLanzamiento().getYear() == year);
     }
 
-    @Override
-    public Flux<Funko> releasedIn2023() throws SQLException, IOException {
-        return findAll().filter(funko -> funko.fechaLanzamiento().getYear() == 2023);
-    }
-
-    @Override
-    public Mono<Double> averagePrice() throws SQLException, IOException {
-        return findAll().collect(Collectors.averagingDouble(Funko::precio));
-    }
-
-    @Override
-    public Mono<Long> stitchFunkosCount() throws SQLException, IOException {
-        return findAll().count();
-    }
-
-    @Override
-    public Flux<Funko> stitchFunkos() throws SQLException, IOException {
-        return findAll().filter(funko -> funko.nombre().contains("Stitch"));
-    }
 
 }

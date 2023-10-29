@@ -11,10 +11,25 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.sql.SQLException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 public class FunkosReactiveRepoImpl implements FunkosReactiveRepo {
+
+    private enum Columns{
+        NOMBRE("nombre"),
+        PRECIO("precio"),
+        MODELO("modelo"),
+        FECHALANZAMIENTO("fecha_lanzamiento");
+         Columns(String name) {
+             this.columnName = name;
+         }
+
+        private final String columnName;
+    }
 
     private final Logger logger = LoggerFactory.getLogger(FunkosReactiveRepoImpl.class);
     private static FunkosReactiveRepoImpl instance;
@@ -39,10 +54,10 @@ public class FunkosReactiveRepoImpl implements FunkosReactiveRepo {
         return Flux.usingWhen(
             databaseManager.getConnectionPool().create(),
             connection -> Flux.from(connection.createStatement(sql).execute()).flatMap(res->  res.map((row, rm)-> new Funko(row.get("cod", UUID.class),
-                    row.get("nombre", String.class),
-                    row.get("modelo", Modelo.class),
-                    row.get("precio", Double.class),
-                    row.get("fecha_lanzamiento", java.time.LocalDate.class)))
+                    row.get(Columns.NOMBRE.columnName, String.class),
+                    Modelo.valueOf(row.get(Columns.MODELO.columnName, String.class)),
+                    row.get(Columns.PRECIO.columnName, BigDecimal.class).doubleValue(),
+                    LocalDate.from(row.get(Columns.FECHALANZAMIENTO.columnName, LocalDateTime.class))))
             ),
             Connection::close
         );
@@ -55,10 +70,10 @@ public class FunkosReactiveRepoImpl implements FunkosReactiveRepo {
 
         return Mono.usingWhen(databaseManager.getConnectionPool().create(),
                 connection -> Mono.from(connection.createStatement(sql).bind(0, id).execute()).flatMap(res->  Mono.from(res.map((row, rm)-> new Funko(row.get("cod", UUID.class),
-                        row.get("nombre", String.class),
-                        row.get("modelo", Modelo.class),
-                        row.get("precio", Double.class),
-                        row.get("fecha_lanzamiento", java.time.LocalDate.class)))
+                        row.get(Columns.NOMBRE.columnName, String.class),
+                        Modelo.valueOf(row.get(Columns.MODELO.columnName, String.class)),
+                        row.get(Columns.PRECIO.columnName, BigDecimal.class).doubleValue(),
+                        LocalDate.from(row.get(Columns.FECHALANZAMIENTO.columnName, LocalDateTime.class))))
                 )),
                 Connection::close
                 );
@@ -72,7 +87,7 @@ public class FunkosReactiveRepoImpl implements FunkosReactiveRepo {
 
         return Mono.usingWhen(databaseManager.getConnectionPool().create(),
                 connection -> Flux.from(connection.createStatement(sql).bind(0, entity.codigo()).bind(1, entity.nombre())
-                        .bind(2, entity.modelo()).bind(3, entity.precio()).bind(4, entity.fechaLanzamiento()).execute()).then(Mono.just(entity)), Connection::close);
+                        .bind(2, entity.modelo().name()).bind(3, entity.precio()).bind(4, entity.fechaLanzamiento()).execute()).then(Mono.just(entity)), Connection::close);
 
     }
 
@@ -83,18 +98,22 @@ public class FunkosReactiveRepoImpl implements FunkosReactiveRepo {
 
         return Mono.usingWhen(databaseManager.getConnectionPool().create(),
                 connection -> Flux.from(connection.createStatement(sql).bind(4, entity.codigo()).bind(0, entity.nombre())
-                        .bind(1, entity.modelo()).bind(2, entity.precio()).bind(3, entity.fechaLanzamiento()).execute()).then(Mono.just(entity)), Connection::close);
+                        .bind(1, entity.modelo().name()).bind(2, entity.precio()).bind(3, entity.fechaLanzamiento()).execute()).then(Mono.just(entity)), Connection::close);
 
     }
 
     @Override
     public Mono<Boolean> delete(UUID id) throws SQLException, IOException {
-        logger.info("Eliminado funko con id "+id);
-        String sql = "DELETE FROM funko WHERE cod = ?";
+        logger.info("Eliminado funko con id " + id);
+        String sql = "DELETE FROM funkos WHERE cod = ?";
 
-        return Mono.usingWhen(databaseManager.getConnectionPool().create(),
-                connection -> Flux.from(connection.createStatement(sql).bind(0, id).execute()).flatMap(Result::getRowsUpdated).hasElements() , Connection::close);
-
+        return Mono.usingWhen(databaseManager.getConnectionPool().create(), connection -> Flux.from(connection.createStatement(sql).bind(0, id).execute()).flatMap(Result::getRowsUpdated).<Boolean>handle((number, sink) -> {
+            if (number != 0) {
+                sink.next(true);
+            } else {
+                sink.next(false);
+            }
+        }).next(), Connection::close);
 
     }
 
@@ -114,10 +133,10 @@ public class FunkosReactiveRepoImpl implements FunkosReactiveRepo {
 
         return Mono.usingWhen(databaseManager.getConnectionPool().create(),
                 connection -> Mono.from(connection.createStatement("SELECT * FROM funkos WHERE nombre = ?").bind(0, name).execute()).flatMap(res->  Mono.from(res.map((row, rm)-> new Funko(row.get("cod", UUID.class),
-                        row.get("nombre", String.class),
-                        row.get("modelo", Modelo.class),
-                        row.get("precio", Double.class),
-                        row.get("fecha_lanzamiento", java.time.LocalDate.class)))
+                        row.get(Columns.NOMBRE.columnName, String.class),
+                        Modelo.valueOf(row.get(Columns.MODELO.columnName, String.class)),
+                        row.get(Columns.PRECIO.columnName, BigDecimal.class).doubleValue(),
+                        LocalDate.from(row.get(Columns.FECHALANZAMIENTO.columnName, LocalDateTime.class))))
                 )),
                 Connection::close
         );

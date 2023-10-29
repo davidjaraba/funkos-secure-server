@@ -1,5 +1,6 @@
 package dev.server.services.database;
 
+import dev.server.Server;
 import io.r2dbc.pool.ConnectionPool;
 import io.r2dbc.pool.ConnectionPoolConfiguration;
 import io.r2dbc.spi.Connection;
@@ -62,7 +63,7 @@ public class DatabaseManager {
 
         try {
             Properties appProps = new Properties();
-            appProps.load(new FileInputStream( ClassLoader.getSystemResource("database.properties").getFile()));
+            appProps.load(getClass().getClassLoader().getResourceAsStream("database.properties"));
             url = appProps.getProperty("db.stringDB");
             initTables = Boolean.parseBoolean(appProps.getProperty("db.loadTables", "false"));
         } catch (Exception e) {

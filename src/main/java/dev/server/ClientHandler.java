@@ -3,18 +3,21 @@ package dev.server;
 import com.auth0.jwt.interfaces.DecodedJWT;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import dev.common.models.Login;
-import dev.common.models.Request;
-import dev.common.models.Response;
-import dev.common.models.User;
+import dev.common.models.*;
 import dev.common.utils.LocalDateAdapter;
+import dev.common.utils.LocalDateTimeAdapter;
 import dev.common.utils.UuidAdapter;
 import dev.server.annotations.Authorized;
 import dev.server.annotations.RequestBody;
 import dev.server.annotations.RequestHandler;
 import dev.server.annotations.RequestToken;
+import dev.server.database.models.Modelo;
+import dev.server.repositories.FunkosReactiveRepoImpl;
 import dev.server.repositories.UsersRepository;
+import dev.server.services.FunkoServiceImpl;
 import dev.server.services.TokenService;
+import dev.server.services.cache.FunkosCacheImpl;
+import dev.server.services.database.DatabaseManager;
 import org.mindrot.jbcrypt.BCrypt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +29,8 @@ import java.io.PrintWriter;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.net.Socket;
+import java.sql.SQLException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -33,11 +38,13 @@ public class ClientHandler extends Thread {
 
     private static Logger logger = LoggerFactory.getLogger(ClientHandler.class);
     private final Gson gson = new GsonBuilder()
-            .registerTypeAdapter(LocalDateTime.class, new LocalDateAdapter())
+            .registerTypeAdapter(LocalDate.class, new LocalDateAdapter())
+            .registerTypeAdapter(LocalDateTime.class, new LocalDateTimeAdapter())
             .registerTypeAdapter(UUID.class, new UuidAdapter()).create();
     private final long clientNumber;
     private final Socket socket;
     private TokenService tokenService = TokenService.getInstance();
+    private final FunkoServiceImpl funkoService;
 
     private static Map<Request.Type, Method> handlers = new HashMap<>();
 
@@ -49,18 +56,19 @@ public class ClientHandler extends Thread {
 
         this.clientNumber = clientNumber;
         this.socket = socket;
+        funkoService = new FunkoServiceImpl(FunkosReactiveRepoImpl.getInstance(DatabaseManager.getInstance()), new FunkosCacheImpl());
 
     }
 
     public void start() {
 
         registerHandlers(this);
+        String clientInput;
 
         try {
 
             openConnection();
 
-            String clientInput;
 
             while ((clientInput = in.readLine()) != null) {
                 logger.debug("request " + clientInput);
@@ -70,9 +78,9 @@ public class ClientHandler extends Thread {
             }
 
         } catch (IOException | NoSuchMethodException e) {
-            logger.error("Error: {}", e.getMessage());
+            logger.error("Error", e);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            logger.error("Error al procesar la petición", e);
         }
 
     }
@@ -102,7 +110,8 @@ public class ClientHandler extends Thread {
 //             && method.getParameterCount() == 1
             if (method.isAnnotationPresent(RequestHandler.class)) {
                 if (method.getReturnType() != Response.class) {
-                    throw new IllegalArgumentException("El método " + method.getName() + " de la clase " + clazz.getName() + " debe devolver una respuesta");
+                    String s = "El método " + method.getName() + " de " + clazz.getName() + " debe devolver una respuesta";
+                    throw new IllegalArgumentException(s);
                 }
                 RequestHandler annotation = method.getAnnotation(RequestHandler.class);
                 Request.Type requestType = annotation.value();
@@ -111,7 +120,7 @@ public class ClientHandler extends Thread {
         }
     }
 
-    public Response<?> handleRequest(String request) throws Exception {
+    public Response<Object> handleRequest(String request) throws Exception {
 
         Request<?> requestObj = gson.fromJson(request, Request.class);
         logger.debug("Procesando peticion {}", requestObj.type());
@@ -142,7 +151,7 @@ public class ClientHandler extends Thread {
                     args.add(methodParameter);
                 }
             }
-            return (Response<?>) handler.invoke(this, args.toArray());
+            return (Response<Object>) handler.invoke(this, args.toArray());
         } else {
             logger.error("Request no valida");
             return new Response<>(Response.Status.ERROR, "Request no valida", LocalDateTime.now().toString());
@@ -155,7 +164,7 @@ public class ClientHandler extends Thread {
         logger.debug("Login {}", login);
 
 
-        Optional<User> user = UsersRepository.getInstance().findByByUsername(login.username());
+        Optional<User> user = UsersRepository.getInstance().findByUsername(login.username());
 
         if (user.isEmpty() || !BCrypt.checkpw(login.password(), user.get().password())) {
             logger.warn("Usuario no encontrado o falla la contraseña");
@@ -166,6 +175,82 @@ public class ClientHandler extends Thread {
 
     }
 
+    @RequestHandler(value = Request.Type.GETALL)
+    @Authorized
+    public Response<List<Funko>> getAllFunkos() throws SQLException, IOException {
+
+        List<Funko> funkos = funkoService.findAll().collectList().block();
+
+        return new Response<>(Response.Status.OK, funkos, LocalDateTime.now().toString());
+
+    }
+
+    @RequestHandler(value = Request.Type.GETBYID)
+    @Authorized
+    public Response<Funko> getFunkoById(@RequestBody UUID id) throws SQLException, IOException {
+
+        Funko funko = funkoService.findById(id).block();
+
+        return new Response<>(Response.Status.OK, funko, LocalDateTime.now().toString());
+
+    }
+
+    @RequestHandler(value = Request.Type.GETBYYEAR)
+    @Authorized
+    public Response<List<Funko>> getFunkoByYear(@RequestBody Integer year) throws SQLException, IOException {
+
+        List<Funko> funkos = funkoService.releasedIn(year).collectList().block();
+
+        return new Response<>(Response.Status.OK, funkos, LocalDateTime.now().toString());
+
+    }
+
+    @RequestHandler(value = Request.Type.GETBYMODELO)
+    @Authorized
+    public Response<List<Funko>> getByModelo(@RequestBody Modelo modelo) throws IOException, SQLException {
+        Map<Modelo, List<Funko>> map = funkoService.groupedByModel().block();
+        List<Funko> funkos = map.get(modelo);
+        return new Response<>(Response.Status.OK, funkos, LocalDateTime.now().toString());
+    }
+
+    @RequestHandler(value = Request.Type.POST)
+    @Authorized
+    public Response<Funko> addFunko(@RequestBody Funko funko) throws IOException, SQLException {
+        Funko newFunko = funkoService.save(funko).block();
+        return new Response<>(Response.Status.OK, newFunko, LocalDateTime.now().toString());
+    }
+
+    @RequestHandler(value = Request.Type.DELETE)
+    @Authorized
+    public Response<String> deleteFunko(@RequestToken DecodedJWT token, @RequestBody Funko funko) throws IOException, SQLException {
+        final Response<String> unathorizedResponse = new Response<>(Response.Status.UNAUTHORIZED, "No autorizado", LocalDateTime.now().toString());
+        String username = token.getClaim("username").asString();
+        Optional<User> userOptional = UsersRepository.getInstance().findByUsername(username);
+        if (userOptional.isEmpty()) {
+            return unathorizedResponse;
+        }
+        User user = userOptional.get();
+        if (user.role() != User.Role.ADMIN) {
+            return unathorizedResponse;
+        }
+
+        Boolean deleted = funkoService.delete(funko).block();
+        if (deleted) {
+            return new Response<>(Response.Status.OK, "Funko borrado correctamente", LocalDateTime.now().toString());
+        } else {
+            return new Response<>(Response.Status.ERROR, "Ha ocurrido un error al borrar el funko", LocalDateTime.now().toString());
+        }
+    }
+
+    @RequestHandler(value = Request.Type.UPDATE)
+    @Authorized
+    public Response<Funko> updateFunko(@RequestBody Funko funko) throws SQLException, IOException {
+
+        Funko resFunko = funkoService.update(funko).block();
+
+        return new Response<>(Response.Status.OK, resFunko, LocalDateTime.now().toString());
+
+    }
 
     private DecodedJWT verifyToken(String token) {
         if (token == null) {

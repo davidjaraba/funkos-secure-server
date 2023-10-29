@@ -3,13 +3,12 @@ package dev.client;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
-import dev.common.models.Login;
-import dev.common.models.Request;
-import dev.common.models.Response;
-import dev.common.models.User;
+import dev.common.models.*;
 import dev.common.utils.LocalDateAdapter;
+import dev.common.utils.LocalDateTimeAdapter;
 import dev.common.utils.UuidAdapter;
 import dev.server.Server;
+import dev.server.database.models.Modelo;
 import org.apache.ibatis.logging.Log;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,10 +20,7 @@ import javax.net.ssl.SSLSocketFactory;
 import java.io.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Properties;
-import java.util.UUID;
+import java.util.*;
 
 public class Client {
 
@@ -32,7 +28,8 @@ public class Client {
     private static int PORT = 3000;
     private static final Logger logger = LoggerFactory.getLogger(Client.class);
     private final Gson gson = new GsonBuilder()
-            .registerTypeAdapter(LocalDateTime.class, new LocalDateAdapter())
+            .registerTypeAdapter(LocalDate.class, new LocalDateAdapter())
+            .registerTypeAdapter(LocalDateTime.class, new LocalDateTimeAdapter())
             .registerTypeAdapter(UUID.class, new UuidAdapter()).create();
     private SSLSocket socket;
     private PrintWriter out;
@@ -107,10 +104,39 @@ public class Client {
 
     public void start() throws IOException {
 
+        final String logMessage = "Funko: {}";
         initClient();
         openConnection();
 
         token = sendLoginRequest();
+
+        Response<List<Funko>> allFunkos = sendRequest(null, Request.Type.GETALL);
+
+        logger.info(logMessage, allFunkos.content());
+
+        Response<Funko> funkoById = sendRequest(UUID.fromString("3b6c6f58-79b9-434b-82ab-01a2d6e4434"), Request.Type.GETBYID);
+
+        logger.info(logMessage, funkoById.content());
+
+        Response<Funko> funkoByModel = sendRequest(Modelo.DISNEY, Request.Type.GETBYMODELO);
+
+        logger.info(logMessage, funkoByModel.content());
+
+        Response<Funko> funkoByYear = sendRequest(2022, Request.Type.GETBYYEAR);
+
+        logger.info(logMessage, funkoByYear.content());
+        UUID funkoUuid = UUID.randomUUID();
+        Response<Funko> insertedFunko = sendRequest(new Funko(funkoUuid, "FunkoInsertado", Modelo.DISNEY, 10.0, LocalDate.now()), Request.Type.POST);
+
+        logger.info(logMessage, insertedFunko.content());
+Funko funko = new Funko(funkoUuid, "FunkoActualizado", Modelo.DISNEY, 500.0, LocalDate.now());
+        Response<Funko> updatedFunko = sendRequest(funko, Request.Type.UPDATE);
+
+        logger.info(logMessage, updatedFunko.content());
+
+        Response<String> deletedFunko = sendRequest(funko, Request.Type.DELETE);
+
+        logger.info(logMessage, deletedFunko.content());
 
         closeConnection();
 
@@ -118,7 +144,7 @@ public class Client {
 
     public String sendLoginRequest() {
 
-        Login request =  new Login("manolo", "manolo1234");
+        Login request =  new Login("juan", "juan1234");
         Response<String> response = sendRequest(request, Request.Type.LOGIN);
         if (response == null) {
             logger.error("Error al enviar la petición de login");

@@ -12,4 +12,7 @@ public interface FunkosCache<UUID, Funko> {
     void clear();
 
     void shutdown();
+
+    int size();
+
 }

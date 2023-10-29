@@ -1,5 +1,9 @@
 package dev.server;
 
+import dev.server.repositories.FunkosReactiveRepoImpl;
+import dev.server.services.FunkoServiceImpl;
+import dev.server.services.cache.FunkosCacheImpl;
+import dev.server.services.database.DatabaseManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -7,8 +11,11 @@ import javax.net.ssl.SSLServerSocket;
 import javax.net.ssl.SSLServerSocketFactory;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.sql.SQLException;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicLong;
 
 
@@ -16,7 +23,7 @@ public class Server {
 
     public static int PORT = 3000;
     public static String SECRET = "";
-    public static long EXPIRATION_TIME = 0;
+    public static long EXPIRATION_TIME = 100;
     private static final AtomicLong clientNumber = new AtomicLong(0);
     private static Logger logger = LoggerFactory.getLogger(Server.class);
     private static SSLServerSocket serverSocket;
@@ -28,7 +35,7 @@ public class Server {
 
         Properties appProps = new Properties();
 
-        try (FileInputStream file = new FileInputStream(Objects.requireNonNull(Server.class.getClassLoader().getResource("server.properties")).getPath())){
+        try (InputStream file = Server.class.getClassLoader().getResourceAsStream("server.properties")){
 
             appProps.load(file);
 
@@ -77,6 +84,26 @@ public class Server {
         }catch (Exception e){
             logger.error("Error al iniciar el servidor", e);
         }
+
+    }
+
+    public static void main(String[] args) {
+
+        logger.info("Inicializando servidor...");
+
+        DatabaseManager databaseManager = DatabaseManager.getInstance();
+
+        FunkosReactiveRepoImpl funkosReactiveRepo = FunkosReactiveRepoImpl.getInstance(databaseManager);
+
+        FunkosCacheImpl funkoCache = new FunkosCacheImpl();
+
+        FunkoServiceImpl funkoService = new FunkoServiceImpl(funkosReactiveRepo, funkoCache);
+
+        funkoService.importCsv().block();
+
+
+        Server.run();
+
 
     }
 
