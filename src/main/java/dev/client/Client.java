@@ -18,6 +18,7 @@ import javax.net.ssl.SSLServerSocketFactory;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import java.io.*;
+import java.lang.reflect.Type;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -110,7 +111,7 @@ public class Client {
 
         token = sendLoginRequest();
 
-        Response<List<Funko>> allFunkos = sendRequest(null, Request.Type.GETALL);
+        Response<List<Funko>> allFunkos = sendListRequest(null, Request.Type.GETALL);
 
         logger.info(logMessage, allFunkos.content());
 
@@ -118,18 +119,18 @@ public class Client {
 
         logger.info(logMessage, funkoById.content());
 
-        Response<Funko> funkoByModel = sendRequest(Modelo.DISNEY, Request.Type.GETBYMODELO);
+        Response<List<Funko>> funkoByModel = sendListRequest(Modelo.DISNEY, Request.Type.GETBYMODELO);
 
         logger.info(logMessage, funkoByModel.content());
 
-        Response<Funko> funkoByYear = sendRequest(2022, Request.Type.GETBYYEAR);
+        Response<List<Funko>> funkoByYear = sendListRequest(2022, Request.Type.GETBYYEAR);
 
         logger.info(logMessage, funkoByYear.content());
         UUID funkoUuid = UUID.randomUUID();
         Response<Funko> insertedFunko = sendRequest(new Funko(funkoUuid, "FunkoInsertado", Modelo.DISNEY, 10.0, LocalDate.now()), Request.Type.POST);
 
         logger.info(logMessage, insertedFunko.content());
-Funko funko = new Funko(funkoUuid, "FunkoActualizado", Modelo.DISNEY, 500.0, LocalDate.now());
+        Funko funko = new Funko(funkoUuid, "FunkoActualizado", Modelo.DISNEY, 500.0, LocalDate.now());
         Response<Funko> updatedFunko = sendRequest(funko, Request.Type.UPDATE);
 
         logger.info(logMessage, updatedFunko.content());
@@ -142,10 +143,13 @@ Funko funko = new Funko(funkoUuid, "FunkoActualizado", Modelo.DISNEY, 500.0, Loc
 
     }
 
-    public String sendLoginRequest() {
+    public String sendLoginRequest() throws IOException {
 
-        Login request =  new Login("juan", "juan1234");
-        Response<String> response = sendRequest(request, Request.Type.LOGIN);
+        Login request = new Login("juan", "juan1234");
+        out.println(gson.toJson(new Request<>(Request.Type.LOGIN, request, token, LocalDateTime.now().toString())));
+        String json = in.readLine();
+        Response<String> response = gson.fromJson(json, new TypeToken<Response<String>>() {
+        }.getType());
         if (response == null) {
             logger.error("Error al enviar la petición de login");
             return null;
@@ -158,13 +162,27 @@ Funko funko = new Funko(funkoUuid, "FunkoActualizado", Modelo.DISNEY, 500.0, Loc
     private <T, R> Response<R> sendRequest(T content, Request.Type type) {
         out.println(gson.toJson(new Request<>(type, content, token, LocalDateTime.now().toString())));
         try {
-            return gson.fromJson(in.readLine(), new TypeToken<Response<R>>() {
-            }.getType());
+            Type responseType = new TypeToken<Response<R>>() {
+            }.getType();
+            String json = in.readLine();
+            return gson.fromJson(json, responseType);
         } catch (IOException e) {
             logger.error("Error: {}", e.getMessage());
         }
         return null;
     }
 
+
+    private <T> Response<List<Funko>> sendListRequest(T content, Request.Type type) {
+        out.println(gson.toJson(new Request<>(type, content, token, LocalDateTime.now().toString())));
+        try {
+            Type responseType = new TypeToken<Response<List<Funko>>>() {
+            }.getType();
+            return gson.fromJson(in.readLine(), responseType);
+        } catch (IOException e) {
+            logger.error("Error: {}", e.getMessage());
+        }
+        return null;
+    }
 
 }
