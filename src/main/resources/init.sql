@@ -1,10 +1,9 @@
 
 CREATE TABLE IF NOT EXISTS `funkos` (
     `id` INT NOT NULL AUTO_INCREMENT,
-    `MyId` LONG NOT NULL,
     `cod` UUID NOT NULL,
     `nombre` VARCHAR(255),
-    `modelo` ENUM('MARVEL', 'DISNEY', 'ANIME', 'OTROS'),
+    `modelo` VARCHAR(20),
     `precio` DECIMAL(10,2),
     `fecha_lanzamiento` TIMESTAMP,
     `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

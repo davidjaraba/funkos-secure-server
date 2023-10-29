@@ -42,7 +42,7 @@ public class FunkoController {
     }
 
     public Flux<Funko> releasedIn2023() throws SQLException, IOException {
-        return funkoService.releasedIn2023().doOnSubscribe(subscription -> logger.info("Funkos lanzados en 2023"));
+        return funkoService.releasedIn(2023).doOnSubscribe(subscription -> logger.info("Funkos lanzados en 2023"));
     }
 
     public Mono<Double> averagePrice() throws SQLException, IOException {

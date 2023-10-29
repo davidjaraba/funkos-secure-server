@@ -31,7 +31,7 @@ public interface FunkoService {
 
     Mono<Map<Modelo, Long>> countByModel() throws SQLException, IOException;
 
-    Flux<Funko> releasedIn2023() throws SQLException, IOException;
+    Flux<Funko> releasedIn(int year) throws SQLException, IOException;
 
     Mono<Double> averagePrice() throws SQLException, IOException;
 

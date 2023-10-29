@@ -34,7 +34,7 @@ public class UsersRepository {
         return INSTANCE;
     }
 
-    public Optional<User> findByByUsername(String username) {
+    public Optional<User> findByUsername(String username) {
         return users.stream()
                 .filter(user -> user.username().equals(username))
                 .findFirst();

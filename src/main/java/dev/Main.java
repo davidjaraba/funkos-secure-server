@@ -7,8 +7,11 @@ import dev.server.services.FunkoServiceImpl;
 import dev.server.services.cache.FunkosCacheImpl;
 import dev.server.services.database.DatabaseManager;
 
+import java.io.IOException;
+import java.sql.SQLException;
+
 public class Main {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws SQLException, IOException {
 
 
         System.out.println("Hello world!");
@@ -23,7 +26,9 @@ public class Main {
 
         FunkoController funkoController = new FunkoController(funkoService);
 
-        funkoController.importCsv();
+        funkoController.importCsv().block();
+
+        funkoController.findAll().subscribe(System.out::println);
 
 
 

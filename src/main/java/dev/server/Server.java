@@ -9,6 +9,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Scanner;
 import java.util.concurrent.atomic.AtomicLong;
 
 
@@ -16,7 +17,7 @@ public class Server {
 
     public static int PORT = 3000;
     public static String SECRET = "";
-    public static long EXPIRATION_TIME = 0;
+    public static long EXPIRATION_TIME = 100;
     private static final AtomicLong clientNumber = new AtomicLong(0);
     private static Logger logger = LoggerFactory.getLogger(Server.class);
     private static SSLServerSocket serverSocket;

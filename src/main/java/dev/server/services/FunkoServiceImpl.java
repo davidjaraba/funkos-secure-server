@@ -42,40 +42,46 @@ public class FunkoServiceImpl implements FunkoService {
 
     @Override
     public Mono<Void> importCsv() {
-        final String filePath = "data" + File.separator + "funkos.csv";
-        if (!Files.exists(Path.of(filePath))) {
-            logger.error("El fichero " + filePath + " no existe");
-            return Mono.empty();
-        }
-        final String delimiter = ",";
-        Flux.using(
-                () -> new BufferedReader(new FileReader(filePath)),
-                reader -> Flux.fromStream(reader.lines().skip(1).map(line -> {
-                    String[] values = line.split(delimiter);
-                    UUID uuid = UUID.fromString(values[0].substring(0, 35));
-                    return new Funko(uuid, values[1], Modelo.valueOf(values[2]), Double.parseDouble(values[3]), LocalDate.parse(values[4]));
-                })),
-                reader -> {
-                    try {
-                        reader.close();
-                    } catch (IOException e) {
-                        logger.error("Error al cerrar el reader", e);
-                    }
-                }).subscribe(funko -> {
-                    try {
-                        save(funko);
-                    } catch (SQLException | IOException e) {
-                        logger.error("Error al guardar el funko " + funko, e);
-                    }
-                });
 
-        return Mono.empty();
+            final String filePath = "data" + File.separator + "funkos.csv";
+            if (!Files.exists(Path.of(filePath))) {
+                logger.error("El fichero " + filePath + " no existe");
+                return Mono.empty();
+            }
+            final String delimiter = ",";
+            Flux.using(
+                    () -> new BufferedReader(new FileReader(filePath)),
+                    reader -> Flux.fromStream(reader.lines().skip(1).map(line -> {
+                        String[] values = line.split(delimiter);
+                        UUID uuid = UUID.fromString(values[0].substring(0, 35));
+                        return new Funko(uuid, values[1], Modelo.valueOf(values[2]), Double.parseDouble(values[3]), LocalDate.parse(values[4]));
+                    })),
+                    reader -> {
+                        try {
+                            reader.close();
+                        } catch (IOException e) {
+                            logger.error("Error al cerrar el reader", e);
+                        }
+                    }).subscribe(funko -> {
+                        try {
+                            save(funko).subscribe();
+                        } catch (SQLException | IOException e) {
+                            logger.error("Error al guardar el funko " + funko, e);
+                        }
+                    });
+
+            return Mono.empty();
+
 
     }
 
     @Override
     public Mono<Funko> findById(UUID id) throws SQLException, IOException {
-        return funkosCache.get(id).switchIfEmpty(funkosReactiveRepo.findById(id).flatMap(funko -> funkosCache.put(funko.codigo(), funko).then(Mono.just(funko)))).switchIfEmpty(Mono.error(new FunkoNoEncontrado("Funko con id " + id + " no encontrado")));
+        return funkosCache.get(id)
+                .switchIfEmpty(
+                        funkosReactiveRepo.findById(id)
+                                .flatMap(funko -> funkosCache.put(funko.codigo(), funko).then(Mono.just(funko))))
+                .switchIfEmpty(Mono.error(new FunkoNoEncontrado("Funko con id " + id + " no encontrado")));
     }
 
 
@@ -110,8 +116,8 @@ public class FunkoServiceImpl implements FunkoService {
     }
 
     @Override
-    public Flux<Funko> releasedIn2023() throws SQLException, IOException {
-        return findAll().filter(funko -> funko.fechaLanzamiento().getYear() == 2023);
+    public Flux<Funko> releasedIn(int year) throws SQLException, IOException {
+        return findAll().filter(funko -> funko.fechaLanzamiento().getYear() == year);
     }
 
     @Override

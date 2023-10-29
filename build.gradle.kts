@@ -11,7 +11,7 @@ repositories {
 
 dependencies {
     implementation("io.projectreactor:reactor-core:3.5.10")
-    implementation("com.h2database:h2:2.2.224")
+    implementation("com.h2database:h2:2.1.210")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.mybatis:mybatis:3.5.13")
     implementation("ch.qos.logback:logback-classic:1.4.11")
